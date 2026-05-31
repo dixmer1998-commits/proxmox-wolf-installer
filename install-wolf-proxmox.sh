@@ -5,7 +5,7 @@
 # LXC ID: 200
 # NOTA: Este script NO instala firmware-amd-graphics (rompe Proxmox)
 
-SCRIPT_VERSION="v2.1"
+SCRIPT_VERSION="v2.4"
 
 echo ""
 echo "╔═══════════════════════════════════════════════╗"
@@ -79,19 +79,19 @@ if pct status 200 >/dev/null 2>&1; then
 fi
 
 # Detectar storage que soporte LXC rootfs (lvmthin, zfs, lvm, nfs, cifs)
-# NO usar dir (disk-sda, local) ya que pueden no soportar contenedores
+# Formato de pvesm status: Name  Type  Status  Total  Used  Available  %
 STORAGE=""
 for TYPE in lvmthin zfs zfspool lvm nfs cifs; do
-  STORAGE=$(pvesm status | grep active | grep -w "$TYPE" | head -1 | awk '{print $NF}')
+  STORAGE=$(pvesm status | awk -v t="$TYPE" '$2 == t && $3 == "active" {print $1; exit}')
   [ -n "$STORAGE" ] && break
 done
 
 # Fallback: buscar local-lvm o local-zfs explícitamente
 if [ -z "$STORAGE" ]; then
-  pvesm status | grep -q "local-lvm" && STORAGE="local-lvm"
+  pvesm status | awk '$1 == "local-lvm" && $3 == "active" {found=1} END{if(found) print "local-lvm"}' | grep -q . && STORAGE="local-lvm"
 fi
 if [ -z "$STORAGE" ]; then
-  pvesm status | grep -q "local-zfs" && STORAGE="local-zfs"
+  pvesm status | awk '$1 == "local-zfs" && $3 == "active" {found=1} END{if(found) print "local-zfs"}' | grep -q . && STORAGE="local-zfs"
 fi
 
 # Último recurso: "local" (puede no funcionar para LXC)
@@ -100,9 +100,9 @@ if [ -z "$STORAGE" ]; then
   STORAGE="local"
 fi
 
-# Storage para templates (puede ser distinto)
+# Storage para templates (puede ser distinto - el que tenga ISOs/templates)
 TEMPLATE_STORAGE="local"
-pvesm status | grep -q "disk-sda" && TEMPLATE_STORAGE="disk-sda"
+pvesm status | awk '$1 == "disk-sda" {found=1} END{if(found) print "disk-sda"}' | grep -q . && TEMPLATE_STORAGE="disk-sda"
 
 echo "✓ Storage LXC: $STORAGE (para rootfs)"
 echo "✓ Storage templates: $TEMPLATE_STORAGE"
