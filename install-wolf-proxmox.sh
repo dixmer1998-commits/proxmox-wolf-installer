@@ -75,12 +75,18 @@ if pct status 200 >/dev/null 2>&1; then
   exit 1
 fi
 
-# Detectar storage disponible
-STORAGE=$(pvesm status | grep -v 'local ' | grep active | head -1 | awk '{print $1}')
+# Detectar storage para disco del LXC
+STORAGE=$(pvesm status | grep active | grep -v 'iso' | head -1 | awk '{print $1}')
 if [ -z "$STORAGE" ]; then
   STORAGE="local"
 fi
-echo "✓ Usando storage: $STORAGE"
+
+# También detectar storage para templates (siempre "local" o el que tenga templates)
+TEMPLATE_STORAGE=$(pvesm status | grep active | grep -E 'local|dir' | head -1 | awk '{print $1}')
+[ -z "$TEMPLATE_STORAGE" ] && TEMPLATE_STORAGE="local"
+
+echo "✓ Storage LXC: $STORAGE"
+echo "✓ Storage templates: $TEMPLATE_STORAGE"
 
 # Buscar o descargar template de Ubuntu 24.04
 TEMPLATE=$(pveam available --section system | grep ubuntu-24.04 | head -1 | awk '{print $2}')
@@ -96,15 +102,24 @@ if [ -z "$TEMPLATE" ]; then
 fi
 
 echo "✓ Template: $TEMPLATE"
-if [ ! -f "/var/lib/vz/template/cache/$TEMPLATE" ]; then
+
+# Encontrar la ruta del template
+TEMPLATE_PATH=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep "$TEMPLATE" | awk '{print $NF}')
+if [ -z "$TEMPLATE_PATH" ]; then
+  TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE"
+fi
+
+if [ ! -f "$TEMPLATE_PATH" ]; then
   echo "→ Descargando template..."
-  pveam download "$STORAGE" "$TEMPLATE" || pveam download local "$TEMPLATE"
+  pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
+  TEMPLATE_PATH=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep "$TEMPLATE" | awk '{print $NF}')
+  [ -z "$TEMPLATE_PATH" ] && TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE"
 else
   echo "✓ Template ya descargado"
 fi
 
 echo "→ Creando LXC 200..."
-pct create 200 "/var/lib/vz/template/cache/$TEMPLATE" \
+pct create 200 "$TEMPLATE_PATH" \
   --hostname wolf-gaming \
   --memory 14336 \
   --cores 6 \
