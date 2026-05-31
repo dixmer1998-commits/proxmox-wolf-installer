@@ -78,17 +78,33 @@ if pct status 200 >/dev/null 2>&1; then
   exit 1
 fi
 
-# Detectar storage para disco del LXC
-STORAGE=$(pvesm status | grep active | grep -v 'iso' | head -1 | awk '{print $1}')
+# Detectar storage que soporte LXC rootfs (lvmthin, zfs, lvm, nfs, cifs)
+# NO usar dir (disk-sda, local) ya que pueden no soportar contenedores
+STORAGE=""
+for TYPE in lvmthin zfs zfspool lvm nfs cifs; do
+  STORAGE=$(pvesm status | grep active | grep -w "$TYPE" | head -1 | awk '{print $NF}')
+  [ -n "$STORAGE" ] && break
+done
+
+# Fallback: buscar local-lvm o local-zfs explícitamente
 if [ -z "$STORAGE" ]; then
+  pvesm status | grep -q "local-lvm" && STORAGE="local-lvm"
+fi
+if [ -z "$STORAGE" ]; then
+  pvesm status | grep -q "local-zfs" && STORAGE="local-zfs"
+fi
+
+# Último recurso: "local" (puede no funcionar para LXC)
+if [ -z "$STORAGE" ]; then
+  echo "⚠ No se encontró storage LVM/ZFS. Usando 'local' (puede fallar)."
   STORAGE="local"
 fi
 
-# También detectar storage para templates (siempre "local" o el que tenga templates)
-TEMPLATE_STORAGE=$(pvesm status | grep active | grep -E 'local|dir' | head -1 | awk '{print $1}')
-[ -z "$TEMPLATE_STORAGE" ] && TEMPLATE_STORAGE="local"
+# Storage para templates (puede ser distinto)
+TEMPLATE_STORAGE="local"
+pvesm status | grep -q "disk-sda" && TEMPLATE_STORAGE="disk-sda"
 
-echo "✓ Storage LXC: $STORAGE"
+echo "✓ Storage LXC: $STORAGE (para rootfs)"
 echo "✓ Storage templates: $TEMPLATE_STORAGE"
 
 # Buscar o descargar template de Ubuntu 24.04
