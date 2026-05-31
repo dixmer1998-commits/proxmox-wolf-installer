@@ -5,7 +5,7 @@
 # LXC ID: 200
 # NOTA: Este script NO instala firmware-amd-graphics (rompe Proxmox)
 
-SCRIPT_VERSION="v2.4"
+SCRIPT_VERSION="v2.5"
 
 echo ""
 echo "╔═══════════════════════════════════════════════╗"
@@ -78,33 +78,24 @@ if pct status 200 >/dev/null 2>&1; then
   exit 1
 fi
 
-# Detectar storage que soporte LXC rootfs (lvmthin, zfs, lvm, nfs, cifs)
-# Formato de pvesm status: Name  Type  Status  Total  Used  Available  %
-STORAGE=""
-for TYPE in lvmthin zfs zfspool lvm nfs cifs; do
-  STORAGE=$(pvesm status | awk -v t="$TYPE" '$2 == t && $3 == "active" {print $1; exit}')
-  [ -n "$STORAGE" ] && break
-done
+# Detectar storage que soporte rootdir (necesario para LXC)
+echo "→ Buscando storage que soporte LXC rootfs..."
 
-# Fallback: buscar local-lvm o local-zfs explícitamente
-if [ -z "$STORAGE" ]; then
-  pvesm status | awk '$1 == "local-lvm" && $3 == "active" {found=1} END{if(found) print "local-lvm"}' | grep -q . && STORAGE="local-lvm"
-fi
-if [ -z "$STORAGE" ]; then
-  pvesm status | awk '$1 == "local-zfs" && $3 == "active" {found=1} END{if(found) print "local-zfs"}' | grep -q . && STORAGE="local-zfs"
+# Proxmox por defecto usa "local" (dir type). Habilitamos rootdir si no está.
+ROOTDIR_STORAGE="local"
+ROOTDIR_CONTENT=$(grep -A5 "^dir: local" /etc/pve/storage.cfg 2>/dev/null | grep "content" | head -1)
+
+if echo "$ROOTDIR_CONTENT" | grep -q "rootdir"; then
+  echo "  ✓ 'local' ya tiene rootdir habilitado"
+else
+  echo "  Habilitando rootdir en storage 'local'..."
+  pvesm set local --content rootdir,vztmpl,iso,backup,images
 fi
 
-# Último recurso: "local" (puede no funcionar para LXC)
-if [ -z "$STORAGE" ]; then
-  echo "⚠ No se encontró storage LVM/ZFS. Usando 'local' (puede fallar)."
-  STORAGE="local"
-fi
-
-# Storage para templates (puede ser distinto - el que tenga ISOs/templates)
+# Storage para templates (puede ser distinto)
 TEMPLATE_STORAGE="local"
-pvesm status | awk '$1 == "disk-sda" {found=1} END{if(found) print "disk-sda"}' | grep -q . && TEMPLATE_STORAGE="disk-sda"
 
-echo "✓ Storage LXC: $STORAGE (para rootfs)"
+echo "✓ Storage rootfs: $ROOTDIR_STORAGE"
 echo "✓ Storage templates: $TEMPLATE_STORAGE"
 
 # Buscar o descargar template de Ubuntu 24.04
@@ -122,16 +113,16 @@ fi
 
 echo "✓ Template: $TEMPLATE"
 
-# Encontrar la ruta del template
-TEMPLATE_PATH=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep "$TEMPLATE" | awk '{print $NF}')
+# Encontrar la ruta del template (columna 2 = File path)
+TEMPLATE_PATH=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | awk -v t="$TEMPLATE" '$2 ~ t {print $2; exit}')
 if [ -z "$TEMPLATE_PATH" ]; then
   TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE"
 fi
 
 if [ ! -f "$TEMPLATE_PATH" ]; then
-  echo "→ Descargando template..."
+  echo "→ Descargando template a $TEMPLATE_STORAGE..."
   pveam download "$TEMPLATE_STORAGE" "$TEMPLATE"
-  TEMPLATE_PATH=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep "$TEMPLATE" | awk '{print $NF}')
+  TEMPLATE_PATH=$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | awk -v t="$TEMPLATE" '$2 ~ t {print $2; exit}')
   [ -z "$TEMPLATE_PATH" ] && TEMPLATE_PATH="/var/lib/vz/template/cache/$TEMPLATE"
 else
   echo "✓ Template ya descargado"
@@ -142,7 +133,7 @@ pct create 200 "$TEMPLATE_PATH" \
   --hostname wolf-gaming \
   --memory 14336 \
   --cores 6 \
-  --rootfs "$STORAGE":64 \
+  --rootfs "$ROOTDIR_STORAGE":64 \
   --net0 name=eth0,bridge=vmbr0,ip=dhcp \
   --unprivileged 0 \
   --features fuse=1,nesting=1 || {
