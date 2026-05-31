@@ -21,7 +21,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Verificar que es Proxmox
-if [ ! -f /etc/pve/pve-enterprise.list ] && [ ! -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
+if ! command -v pveversion &>/dev/null && [ ! -d /etc/pve ]; then
   echo "⚠ Esto no parece un servidor Proxmox. ¿Seguro que quieres continuar?"
 fi
 
