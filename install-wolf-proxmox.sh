@@ -3,10 +3,13 @@
 # Máximo Rendimiento - AMD RX 580 | Ryzen 5 4500 | 16GB RAM
 # IP Servidor: 192.168.40.42
 # LXC ID: 200
+# NOTA: Este script NO instala firmware-amd-graphics (rompe Proxmox)
+
+SCRIPT_VERSION="v2.1"
 
 echo ""
 echo "╔═══════════════════════════════════════════════╗"
-echo "║  Wolf (Games on Whales) - Instalador          ║"
+echo "║  Wolf (Games on Whales) - Instalador $SCRIPT_VERSION ║"
 echo "║  para Proxmox con GPU AMD                    ║"
 echo "╚═══════════════════════════════════════════════╝"
 echo ""
