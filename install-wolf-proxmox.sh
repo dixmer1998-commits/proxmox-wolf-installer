@@ -23,15 +23,37 @@ if [ ! -f /etc/pve/pve-enterprise.list ] && [ ! -f /etc/apt/sources.list.d/pve-e
 fi
 
 echo "=== PASO 1: Verificar GPU AMD ==="
-if [ -e /dev/dri/renderD128 ]; then
-  echo "✓ GPU AMD detectada en /dev/dri/renderD128"
+echo "→ Buscando GPU AMD..."
+RENDER_NODE=$(ls /dev/dri/renderD* 2>/dev/null | head -1)
+if [ -n "$RENDER_NODE" ]; then
+  echo "✓ GPU detectada: $RENDER_NODE"
   ls -la /dev/dri/
 else
-  echo "⚠ /dev/dri/renderD128 no encontrado. Intentando cargar firmware AMD..."
-  apt update
-  apt install -y firmware-amd-graphics --no-install-recommends 2>/dev/null || true
-  echo "Revisa si la GPU aparece con: ls -la /dev/dri/"
+  echo "⚠ No se encontró /dev/dri/renderD*"
+  echo "→ Verificando driver amdgpu..."
+  if lsmod | grep -q amdgpu; then
+    echo "✓ Driver amdgpu cargado. Esperando a que aparezca el nodo..."
+    sleep 5
+    RENDER_NODE=$(ls /dev/dri/renderD* 2>/dev/null | head -1)
+    if [ -n "$RENDER_NODE" ]; then
+      echo "✓ GPU detectada: $RENDER_NODE"
+    else
+      echo "⚠ El driver amdgpu está cargado pero no hay nodo render."
+      echo "  Posibles causas: RX 580 no detectada, o usa otro driver (radeon)."
+      echo "  Revisa: dmesg | grep -i amdgpu"
+      echo "  Revisa: lspci -nnk | grep -A3 -i vga"
+    fi
+  else
+    echo "⚠ Driver amdgpu NO cargado. Intentando cargarlo..."
+    modprobe amdgpu 2>/dev/null && echo "✓ amdgpu cargado" || echo "⚠ No se pudo cargar amdgpu. ¿Está la RX 580 instalada?"
+    sleep 3
+    RENDER_NODE=$(ls /dev/dri/renderD* 2>/dev/null | head -1)
+    if [ -n "$RENDER_NODE" ]; then
+      echo "✓ GPU detectada: $RENDER_NODE"
+    fi
+  fi
 fi
+echo ""
 
 cat > /etc/udev/rules.d/85-wolf-virtual-inputs.rules << 'EOF'
 KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput", TAG+="uaccess"
